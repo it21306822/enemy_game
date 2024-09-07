@@ -12,10 +12,22 @@ fn main() {
             }),
             ..Default::default()
         }))
-        
+        .add_systems(Startup, setup_system)
         .run();
 }
 
+
 fn setup_system(mut commands: Commands) {
-    // Add setup logic here, if needed
+    // camera
+    commands.spawn(Camera2dBundle::default());
+
+    // add rectangle
+    commands.spawn(SpriteBundle {
+        sprite: Sprite {
+            color: Color::srgb(0.25, 0.25, 0.75),
+            custom_size: Some(Vec2::new(150., 150.)),
+            ..Default::default()
+        },
+        ..Default::default()
+    });
 }
