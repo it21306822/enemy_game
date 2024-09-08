@@ -1,8 +1,27 @@
-use bevy::prelude::*;
-use bevy::window::{PrimaryWindow, WindowResolution}; // Import PrimaryWindow and WindowResolution
+mod player;
 
+use bevy::prelude::*;
+use bevy::window::{PrimaryWindow, WindowResolution};
+use player::PlayerPlugin;
+
+// region:  ---Asset Constants
 const PLAYER_SPRITE: &str = "player_a_01.png"; // Path to player sprite
 const PLAYER_SIZE: (f32, f32) = (144., 75.); // Player sprite size
+const SPRITE_SCALE: f32 = 0.5;
+// endregion: ---Asset Constants
+
+//region: ---Resources
+#[derive(Resource)]
+pub struct WinSize {
+    pub w: f32,
+    pub h: f32,
+}
+
+#[derive(Resource)]
+pub struct GameTextures {
+    pub player: Handle<Image>, // Make the field public
+}
+//endregion: ---Resources
 
 fn main() {
     App::new()
@@ -18,7 +37,9 @@ fn main() {
             ..Default::default()
         }))
         // Add the setup system to initialize the game
-        .add_startup_system(setup_system) // Use `add_startup_system` for Bevy 0.10+
+        .add_startup_system(setup_system)
+
+        .add_plugin(PlayerPlugin)
         .run();
 }
 
@@ -35,17 +56,25 @@ fn setup_system(
     if let Ok(mut window) = window_query.get_single_mut() {
         let (win_w, win_h) = (window.width(), window.height());
 
-        // Comment out the set_position since it's no longer supported directly
-        // window.set_position(IVec2::new(2780, 4900)); 
+        // Add WinSize resource
+        let win_size = WinSize { w: win_w, h: win_h };
+        commands.insert_resource(win_size);
+
+        // Add GameTextures resource
+        let game_textures = GameTextures {
+            player: asset_server.load(PLAYER_SPRITE),
+        };
+        commands.insert_resource(game_textures);
 
         // Calculate player position (bottom of the screen)
-        let bottom = -win_h / 2.;
+        let bottom = -win_h / 2.0;
 
         // Spawn the player sprite using the texture
         commands.spawn(SpriteBundle {
             texture: asset_server.load(PLAYER_SPRITE), // Load player texture
             transform: Transform {
-                translation: Vec3::new(0., bottom + PLAYER_SIZE.1 / 2. + 5., 10.), // Position player
+                translation: Vec3::new(0., bottom + PLAYER_SIZE.1 / 2. * SPRITE_SCALE + 5., 10.), // Position player
+                scale: Vec3::new(SPRITE_SCALE, SPRITE_SCALE, 1.),
                 ..Default::default()
             },
             sprite: Sprite {
