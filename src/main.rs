@@ -1,8 +1,9 @@
-mod player;
-
 use bevy::prelude::*;
 use bevy::window::{PrimaryWindow, WindowResolution};
 use player::PlayerPlugin;
+
+mod player;
+mod components;
 
 // region:  ---Asset Constants
 const PLAYER_SPRITE: &str = "player_a_01.png"; // Path to player sprite
@@ -39,11 +40,11 @@ fn main() {
         // Add the setup system to initialize the game
         .add_startup_system(setup_system)
 
-        .add_plugin(PlayerPlugin)
+        .add_plugin(PlayerPlugin) // PlayerPlugin will handle player spawning
         .run();
 }
 
-// System to set up the game scene (camera, player sprite)
+// System to set up the game resources (camera, textures)
 fn setup_system(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
@@ -65,24 +66,6 @@ fn setup_system(
             player: asset_server.load(PLAYER_SPRITE),
         };
         commands.insert_resource(game_textures);
-
-        // Calculate player position (bottom of the screen)
-        let bottom = -win_h / 2.0;
-
-        // Spawn the player sprite using the texture
-        commands.spawn(SpriteBundle {
-            texture: asset_server.load(PLAYER_SPRITE), // Load player texture
-            transform: Transform {
-                translation: Vec3::new(0., bottom + PLAYER_SIZE.1 / 2. * SPRITE_SCALE + 5., 10.), // Position player
-                scale: Vec3::new(SPRITE_SCALE, SPRITE_SCALE, 1.),
-                ..Default::default()
-            },
-            sprite: Sprite {
-                custom_size: Some(Vec2::new(PLAYER_SIZE.0, PLAYER_SIZE.1)), // Set player sprite size
-                ..Default::default()
-            },
-            ..Default::default()
-        });
     } else {
         eprintln!("Error: Could not get primary window.");
     }
