@@ -13,7 +13,7 @@ const SPRITE_SCALE: f32 = 0.5;
 const BASE_SPEED: f32 = 500.0; // Example player base speed
 const TIME_STEP: f32 = 1.0 / 60.0; // Assuming 60 FPS
 const PLAYER_LASER_SPRITE: &str = "laser_a_01.png";
-const PLAYER_LASER_SIZE: (f32, f32)= (9., 54.);
+const PLAYER_LASER_SIZE: (f32, f32) = (9., 54.);
 // endregion: ---Asset Constants
 
 //region: ---Resources
@@ -80,10 +80,27 @@ fn setup_system(
 
 // System to move entities marked as `Movable`
 fn movable_system(
-    mut query: Query<(&Velocity, &mut Transform, &Movable)>,
+    mut commands: Commands,
+    win_size: Res<WinSize>,
+    mut query: Query<(Entity, &Velocity, &mut Transform, &Movable)>,
 ) {
-    for (velocity, mut transform, _movable) in query.iter_mut() {
+    for (entity, velocity, mut transform, movable) in query.iter_mut() {
+        // Move the entity
         transform.translation.x += velocity.x * TIME_STEP * BASE_SPEED;
         transform.translation.y += velocity.y * TIME_STEP * BASE_SPEED;
+
+        // Despawn the entity if it moves outside the window boundaries
+        if movable.auto_despawn {
+            // Check if the entity is out of bounds (with a margin)
+            const MARGIN: f32 = 200.0;
+            if transform.translation.y > win_size.h / 2.0 + MARGIN
+                || transform.translation.y < -win_size.h / 2.0 - MARGIN
+                || transform.translation.x > win_size.w / 2.0 + MARGIN
+                || transform.translation.x < -win_size.w / 2.0 - MARGIN
+            {
+                println!("Despawning entity: {:?}", entity);
+                commands.entity(entity).despawn();
+            }
+        }
     }
 }
