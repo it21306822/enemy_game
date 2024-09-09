@@ -1,4 +1,4 @@
-use crate::{components::{Player, Velocity}, GameTextures, WinSize, BASE_SPEED, PLAYER_SIZE, SPRITE_SCALE, TIME_STEP};
+use crate::{components::{Movable, Player, Velocity}, GameTextures, WinSize, BASE_SPEED, PLAYER_SIZE, SPRITE_SCALE, TIME_STEP};
 use bevy::prelude::*;
 
 pub struct PlayerPlugin;
@@ -7,8 +7,8 @@ impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
         app
             .add_startup_system(player_spawn_system.in_base_set(StartupSet::PostStartup)) // Correct API for Bevy 0.10+
-            .add_system(player_movement_system)
             .add_system(player_keyboard_event_system)
+            .add_system(player_movement_system) // Added the missing system
             .add_system(player_fire_system);
     }
 }
@@ -42,6 +42,7 @@ fn player_spawn_system(
         ..Default::default()
     })
     .insert(Player)
+    .insert(Movable { auto_despawn: false }) // Ensure Movable is correctly defined
     .insert(Velocity { x: 0., y: 0. });
 }
 
@@ -63,7 +64,9 @@ fn player_fire_system(
                     ..Default::default()
                 },
                 ..Default::default()
-            });
+            })
+            .insert(Movable { auto_despawn: true })
+            .insert(Velocity { x: 0., y: 1. }); // Ensure laser moves upward
         }
     }
 }
@@ -78,11 +81,10 @@ fn player_keyboard_event_system(
         } else if kb.pressed(KeyCode::Right) {
             1.
         } else {
-            0. // Remove the semicolon here
+            0.
         };
     }
 }
-
 
 fn player_movement_system(
     mut query: Query<(&Velocity, &mut Transform), With<Player>>,

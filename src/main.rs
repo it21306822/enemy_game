@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use bevy::window::{PrimaryWindow, WindowResolution};
+use components::{Movable, Velocity}; // Import Velocity along with Movable
 use player::PlayerPlugin;
 
 mod player;
@@ -25,7 +26,7 @@ pub struct WinSize {
 #[derive(Resource)]
 pub struct GameTextures {
     pub player: Handle<Image>,
-    player_laser: Handle<Image>,// Make the field public
+    pub player_laser: Handle<Image>, // Make the field public
 }
 //endregion: ---Resources
 
@@ -44,7 +45,7 @@ fn main() {
         }))
         // Add the setup system to initialize the game
         .add_startup_system(setup_system)
-
+        .add_system(movable_system)
         .add_plugin(PlayerPlugin)
         .run();
 }
@@ -53,7 +54,7 @@ fn main() {
 fn setup_system(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
-    mut window_query: Query<&Window, With<PrimaryWindow>>, // Query for the primary window
+    window_query: Query<&Window, With<PrimaryWindow>>, // Query for the primary window
 ) {
     // Spawn the 2D camera
     commands.spawn(Camera2dBundle::default());
@@ -74,5 +75,15 @@ fn setup_system(
         commands.insert_resource(game_textures);
     } else {
         eprintln!("Error: Could not get primary window.");
+    }
+}
+
+// System to move entities marked as `Movable`
+fn movable_system(
+    mut query: Query<(&Velocity, &mut Transform, &Movable)>,
+) {
+    for (velocity, mut transform, _movable) in query.iter_mut() {
+        transform.translation.x += velocity.x * TIME_STEP * BASE_SPEED;
+        transform.translation.y += velocity.y * TIME_STEP * BASE_SPEED;
     }
 }
