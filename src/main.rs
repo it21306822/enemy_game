@@ -9,6 +9,10 @@ mod components;
 const PLAYER_SPRITE: &str = "player_a_01.png"; // Path to player sprite
 const PLAYER_SIZE: (f32, f32) = (144., 75.); // Player sprite size
 const SPRITE_SCALE: f32 = 0.5;
+const BASE_SPEED: f32 = 500.0; // Example player base speed
+const TIME_STEP: f32 = 1.0 / 60.0; // Assuming 60 FPS
+const PLAYER_LASER_SPRITE: &str = "laser_a_01.png";
+const PLAYER_LASER_SIZE: (f32, f32)= (9., 54.);
 // endregion: ---Asset Constants
 
 //region: ---Resources
@@ -20,7 +24,8 @@ pub struct WinSize {
 
 #[derive(Resource)]
 pub struct GameTextures {
-    pub player: Handle<Image>, // Make the field public
+    pub player: Handle<Image>,
+    player_laser: Handle<Image>,// Make the field public
 }
 //endregion: ---Resources
 
@@ -40,21 +45,21 @@ fn main() {
         // Add the setup system to initialize the game
         .add_startup_system(setup_system)
 
-        .add_plugin(PlayerPlugin) // PlayerPlugin will handle player spawning
+        .add_plugin(PlayerPlugin)
         .run();
 }
 
-// System to set up the game resources (camera, textures)
+// System to set up the game scene (camera, player sprite)
 fn setup_system(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
-    mut window_query: Query<&mut Window, With<PrimaryWindow>>, // Query for the primary window
+    mut window_query: Query<&Window, With<PrimaryWindow>>, // Query for the primary window
 ) {
     // Spawn the 2D camera
     commands.spawn(Camera2dBundle::default());
 
-    // Get a mutable reference to the primary window
-    if let Ok(mut window) = window_query.get_single_mut() {
+    // Get a reference to the primary window
+    if let Ok(window) = window_query.get_single() {
         let (win_w, win_h) = (window.width(), window.height());
 
         // Add WinSize resource
@@ -64,6 +69,7 @@ fn setup_system(
         // Add GameTextures resource
         let game_textures = GameTextures {
             player: asset_server.load(PLAYER_SPRITE),
+            player_laser: asset_server.load(PLAYER_LASER_SPRITE),
         };
         commands.insert_resource(game_textures);
     } else {
