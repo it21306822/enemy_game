@@ -1,10 +1,12 @@
 use bevy::prelude::*;
 use bevy::window::{PrimaryWindow, WindowResolution};
-use components::{Movable, Velocity}; // Import Velocity along with Movable
+use components::{Movable, Velocity}; 
+use enemy::EnemyPlugin;
 use player::PlayerPlugin;
 
 mod player;
 mod components;
+mod enemy;
 
 // region:  ---Asset Constants
 const PLAYER_SPRITE: &str = "player_a_01.png"; // Path to player sprite
@@ -14,6 +16,11 @@ const BASE_SPEED: f32 = 500.0; // Example player base speed
 const TIME_STEP: f32 = 1.0 / 60.0; // Assuming 60 FPS
 const PLAYER_LASER_SPRITE: &str = "laser_a_01.png";
 const PLAYER_LASER_SIZE: (f32, f32) = (9., 54.);
+
+const ENEMY_SPRITE: &str = "enemy_a_01.png";
+const ENEMY_SIZE: (f32, f32) = (144., 75.);
+const ENERMY_LASER_SPRITE: &str = "laser_b_01.png";
+const ENERMY_LASER_SIZE: (f32, f32) = (17., 55.);
 // endregion: ---Asset Constants
 
 //region: ---Resources
@@ -25,8 +32,10 @@ pub struct WinSize {
 
 #[derive(Resource)]
 pub struct GameTextures {
-    pub player: Handle<Image>,
-    pub player_laser: Handle<Image>, // Make the field public
+     pub player: Handle<Image>,
+     pub player_laser: Handle<Image>, 
+     pub enemy: Handle<Image>,
+     pub enemy_laser: Handle<Image>, 
 }
 //endregion: ---Resources
 
@@ -43,10 +52,11 @@ fn main() {
             }),
             ..Default::default()
         }))
-        // Add the setup system to initialize the game
-        .add_startup_system(setup_system)
-        .add_system(movable_system)
+        // Define a SystemSet for game setup
+        .add_startup_system(setup_system.in_base_set(StartupSet::Startup)) // No need for label
+        .add_system(movable_system.in_base_set(CoreSet::PostUpdate)) // Use CoreSet for updates
         .add_plugin(PlayerPlugin)
+        .add_plugin(EnemyPlugin)
         .run();
 }
 
@@ -71,6 +81,8 @@ fn setup_system(
         let game_textures = GameTextures {
             player: asset_server.load(PLAYER_SPRITE),
             player_laser: asset_server.load(PLAYER_LASER_SPRITE),
+            enemy: asset_server.load(ENEMY_SPRITE),
+            enemy_laser: asset_server.load(ENERMY_LASER_SPRITE),
         };
         commands.insert_resource(game_textures);
     } else {
@@ -98,7 +110,6 @@ fn movable_system(
                 || transform.translation.x > win_size.w / 2.0 + MARGIN
                 || transform.translation.x < -win_size.w / 2.0 - MARGIN
             {
-                
                 commands.entity(entity).despawn();
             }
         }
