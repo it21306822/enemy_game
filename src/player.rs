@@ -55,11 +55,12 @@ fn player_fire_system(
     if let Ok(player_tf) = query.get_single() {
         if kb.just_pressed(KeyCode::Space) {
             let (x, y) = (player_tf.translation.x, player_tf.translation.y);
+            let x_offset = PLAYER_SIZE.0 / 4. * SPRITE_SCALE -5.;
             
             commands.spawn(SpriteBundle {
                 texture: game_textures.player_laser.clone(),
                 transform: Transform {
-                    translation: Vec3::new(x, y, 0.),
+                    translation: Vec3::new(x + x_offset, y + 15. , 0.),
                     scale: Vec3::new(SPRITE_SCALE, SPRITE_SCALE, 1.),
                     ..Default::default()
                 },

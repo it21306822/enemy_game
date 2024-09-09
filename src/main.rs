@@ -98,7 +98,7 @@ fn movable_system(
                 || transform.translation.x > win_size.w / 2.0 + MARGIN
                 || transform.translation.x < -win_size.w / 2.0 - MARGIN
             {
-                println!("Despawning entity: {:?}", entity);
+                
                 commands.entity(entity).despawn();
             }
         }
