@@ -1,117 +1,323 @@
+#![allow(unused)] // silence unused warnings while exploring (to comment out)
+
+use bevy::math::bounding::IntersectsVolume;
+use bevy::math::{bounding::Aabb2d, Vec3Swizzles};
 use bevy::prelude::*;
-use bevy::window::{PrimaryWindow, WindowResolution};
-use components::{Movable, Velocity}; 
+use bevy::window::PrimaryWindow;
+use components::{
+	Enemy, Explosion, ExplosionTimer, ExplosionToSpawn, FromEnemy, FromPlayer, Laser, Movable,
+	Player, SpriteSize, Velocity,
+};
 use enemy::EnemyPlugin;
 use player::PlayerPlugin;
+use std::collections::HashSet;
 
-mod player;
 mod components;
 mod enemy;
+mod player;
 
-// region:  ---Asset Constants
-const PLAYER_SPRITE: &str = "player_a_01.png"; // Path to player sprite
-const PLAYER_SIZE: (f32, f32) = (144., 75.); // Player sprite size
-const SPRITE_SCALE: f32 = 0.5;
-const BASE_SPEED: f32 = 500.0; // Example player base speed
-const TIME_STEP: f32 = 1.0 / 60.0; // Assuming 60 FPS
+// region:    --- Asset Constants
+
+const PLAYER_SPRITE: &str = "player_a_01.png";
+const PLAYER_SIZE: (f32, f32) = (144., 75.);
 const PLAYER_LASER_SPRITE: &str = "laser_a_01.png";
 const PLAYER_LASER_SIZE: (f32, f32) = (9., 54.);
 
 const ENEMY_SPRITE: &str = "enemy_a_01.png";
 const ENEMY_SIZE: (f32, f32) = (144., 75.);
-const ENERMY_LASER_SPRITE: &str = "laser_b_01.png";
-const ENERMY_LASER_SIZE: (f32, f32) = (17., 55.);
-// endregion: ---Asset Constants
+const ENEMY_LASER_SPRITE: &str = "laser_b_01.png";
+const ENEMY_LASER_SIZE: (f32, f32) = (17., 55.);
 
-//region: ---Resources
+const EXPLOSION_SHEET: &str = "explo_a_sheet.png";
+const EXPLOSION_LEN: usize = 16;
+
+const SPRITE_SCALE: f32 = 0.5;
+
+// endregion: --- Asset Constants
+
+// region:    --- Game Constants
+
+const BASE_SPEED: f32 = 500.;
+
+const PLAYER_RESPAWN_DELAY: f64 = 2.;
+const ENEMY_MAX: u32 = 2;
+const FORMATION_MEMBERS_MAX: u32 = 2;
+
+// endregion: --- Game Constants
+
+// region:    --- Resources
 #[derive(Resource)]
 pub struct WinSize {
-    pub w: f32,
-    pub h: f32,
+	pub w: f32,
+	pub h: f32,
 }
 
 #[derive(Resource)]
-pub struct GameTextures {
-     pub player: Handle<Image>,
-     pub player_laser: Handle<Image>, 
-     pub enemy: Handle<Image>,
-     pub enemy_laser: Handle<Image>, 
+struct GameTextures {
+	player: Handle<Image>,
+	player_laser: Handle<Image>,
+	enemy: Handle<Image>,
+	enemy_laser: Handle<Image>,
+	explosion_layout: Handle<TextureAtlasLayout>,
+	explosion_texture: Handle<Image>,
 }
-//endregion: ---Resources
+
+#[derive(Resource)]
+struct EnemyCount(u32);
+
+#[derive(Resource)]
+struct PlayerState {
+	on: bool,       // alive
+	last_shot: f64, // -1 if not shot
+}
+impl Default for PlayerState {
+	fn default() -> Self {
+		Self {
+			on: false,
+			last_shot: -1.,
+		}
+	}
+}
+
+impl PlayerState {
+	pub fn shot(&mut self, time: f64) {
+		self.on = false;
+		self.last_shot = time;
+	}
+	pub fn spawned(&mut self) {
+		self.on = true;
+		self.last_shot = -1.;
+	}
+}
+// endregion: --- Resources
 
 fn main() {
-    App::new()
-        // Set the background color to dark
-        .insert_resource(ClearColor(Color::rgb(0.04, 0.04, 0.04)))
-        // Configure the window
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                title: "Rust Invaders!".to_string(), // Window title
-                resolution: WindowResolution::new(598.0, 676.0), // Window size
-                ..Default::default()
-            }),
-            ..Default::default()
-        }))
-        // Define a SystemSet for game setup
-        .add_startup_system(setup_system.in_base_set(StartupSet::Startup)) // No need for label
-        .add_system(movable_system.in_base_set(CoreSet::PostUpdate)) // Use CoreSet for updates
-        .add_plugin(PlayerPlugin)
-        .add_plugin(EnemyPlugin)
-        .run();
+	App::new()
+		.insert_resource(ClearColor(Color::srgb(0.04, 0.04, 0.04)))
+		.add_plugins(DefaultPlugins.set(WindowPlugin {
+			primary_window: Some(Window {
+				title: "Rust Invaders!".into(),
+				resolution: (598., 676.).into(),
+				// position window (for tutorial)
+				// position: WindowPosition::At(IVec2::new(2780, 4900)),
+				..Default::default()
+			}),
+			..Default::default()
+		}))
+		.add_plugins(PlayerPlugin)
+		.add_plugins(EnemyPlugin)
+		.add_systems(Startup, setup_system)
+		.add_systems(Update, movable_system)
+		.add_systems(Update, player_laser_hit_enemy_system)
+		.add_systems(Update, enemy_laser_hit_player_system)
+		.add_systems(Update, explosion_to_spawn_system)
+		.add_systems(Update, explosion_animation_system)
+		.run();
 }
 
-// System to set up the game scene (camera, player sprite)
 fn setup_system(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    window_query: Query<&Window, With<PrimaryWindow>>, // Query for the primary window
+	mut commands: Commands,
+	asset_server: Res<AssetServer>,
+	mut texture_atlases: ResMut<Assets<TextureAtlasLayout>>,
+	query: Query<&Window, With<PrimaryWindow>>,
 ) {
-    // Spawn the 2D camera
-    commands.spawn(Camera2dBundle::default());
+	// camera
+	commands.spawn(Camera2dBundle::default());
 
-    // Get a reference to the primary window
-    if let Ok(window) = window_query.get_single() {
-        let (win_w, win_h) = (window.width(), window.height());
+	// capture window size
+	let Ok(primary) = query.get_single() else {
+		return;
+	};
+	let (win_w, win_h) = (primary.width(), primary.height());
 
-        // Add WinSize resource
-        let win_size = WinSize { w: win_w, h: win_h };
-        commands.insert_resource(win_size);
+	// add WinSize resource
+	let win_size = WinSize { w: win_w, h: win_h };
+	commands.insert_resource(win_size);
 
-        // Add GameTextures resource
-        let game_textures = GameTextures {
-            player: asset_server.load(PLAYER_SPRITE),
-            player_laser: asset_server.load(PLAYER_LASER_SPRITE),
-            enemy: asset_server.load(ENEMY_SPRITE),
-            enemy_laser: asset_server.load(ENERMY_LASER_SPRITE),
-        };
-        commands.insert_resource(game_textures);
-    } else {
-        eprintln!("Error: Could not get primary window.");
-    }
+	// create explosion texture atlas
+	let texture_handle = asset_server.load(EXPLOSION_SHEET);
+	let texture_atlas = TextureAtlasLayout::from_grid(UVec2::new(64, 64), 4, 4, None, None);
+	let explosion_layout = texture_atlases.add(texture_atlas);
+
+	// add GameTextures resource
+	let game_textures = GameTextures {
+		player: asset_server.load(PLAYER_SPRITE),
+		player_laser: asset_server.load(PLAYER_LASER_SPRITE),
+		enemy: asset_server.load(ENEMY_SPRITE),
+		enemy_laser: asset_server.load(ENEMY_LASER_SPRITE),
+		explosion_layout,
+		explosion_texture: texture_handle,
+	};
+	commands.insert_resource(game_textures);
+	commands.insert_resource(EnemyCount(0));
 }
 
-// System to move entities marked as `Movable`
 fn movable_system(
-    mut commands: Commands,
-    win_size: Res<WinSize>,
-    mut query: Query<(Entity, &Velocity, &mut Transform, &Movable)>,
+	mut commands: Commands,
+	time: Res<Time>,
+	win_size: Res<WinSize>,
+	mut query: Query<(Entity, &Velocity, &mut Transform, &Movable)>,
 ) {
-    for (entity, velocity, mut transform, movable) in query.iter_mut() {
-        // Move the entity
-        transform.translation.x += velocity.x * TIME_STEP * BASE_SPEED;
-        transform.translation.y += velocity.y * TIME_STEP * BASE_SPEED;
+	let delta = time.delta_seconds();
 
-        // Despawn the entity if it moves outside the window boundaries
-        if movable.auto_despawn {
-            // Check if the entity is out of bounds (with a margin)
-            const MARGIN: f32 = 200.0;
-            if transform.translation.y > win_size.h / 2.0 + MARGIN
-                || transform.translation.y < -win_size.h / 2.0 - MARGIN
-                || transform.translation.x > win_size.w / 2.0 + MARGIN
-                || transform.translation.x < -win_size.w / 2.0 - MARGIN
-            {
-                commands.entity(entity).despawn();
-            }
-        }
-    }
+	for (entity, velocity, mut transform, movable) in &mut query {
+		let translation = &mut transform.translation;
+		translation.x += velocity.x * delta * BASE_SPEED;
+		translation.y += velocity.y * delta * BASE_SPEED;
+
+		if movable.auto_despawn {
+			// despawn when out of screen
+			const MARGIN: f32 = 200.;
+			if translation.y > win_size.h / 2. + MARGIN
+				|| translation.y < -win_size.h / 2. - MARGIN
+				|| translation.x > win_size.w / 2. + MARGIN
+				|| translation.x < -win_size.w / 2. - MARGIN
+			{
+				commands.entity(entity).despawn();
+			}
+		}
+	}
+}
+
+#[allow(clippy::type_complexity)] // for the Query types.
+fn player_laser_hit_enemy_system(
+	mut commands: Commands,
+	mut enemy_count: ResMut<EnemyCount>,
+	laser_query: Query<(Entity, &Transform, &SpriteSize), (With<Laser>, With<FromPlayer>)>,
+	enemy_query: Query<(Entity, &Transform, &SpriteSize), With<Enemy>>,
+) {
+	let mut despawned_entities: HashSet<Entity> = HashSet::new();
+
+	// iterate through the lasers
+	for (laser_entity, laser_tf, laser_size) in laser_query.iter() {
+		if despawned_entities.contains(&laser_entity) {
+			continue;
+		}
+
+		let laser_scale = laser_tf.scale.xy();
+
+		// iterate through the enemies
+		for (enemy_entity, enemy_tf, enemy_size) in enemy_query.iter() {
+			if despawned_entities.contains(&enemy_entity)
+				|| despawned_entities.contains(&laser_entity)
+			{
+				continue;
+			}
+
+			let enemy_scale = enemy_tf.scale.xy();
+
+			// determine if collision
+			let collision = Aabb2d::new(
+				laser_tf.translation.truncate(),
+				(laser_size.0 * laser_scale) / 2.,
+			)
+			.intersects(&Aabb2d::new(
+				enemy_tf.translation.truncate(),
+				(enemy_size.0 * enemy_scale) / 2.,
+			));
+
+			// perform collision
+			if collision {
+				// remove the enemy
+				commands.entity(enemy_entity).despawn();
+				despawned_entities.insert(enemy_entity);
+				enemy_count.0 -= 1;
+
+				// remove the laser
+				commands.entity(laser_entity).despawn();
+				despawned_entities.insert(laser_entity);
+
+				// spawn the explosionToSpawn
+				commands.spawn(ExplosionToSpawn(enemy_tf.translation));
+			}
+		}
+	}
+}
+
+#[allow(clippy::type_complexity)] // for the Query types.
+fn enemy_laser_hit_player_system(
+	mut commands: Commands,
+	mut player_state: ResMut<PlayerState>,
+	time: Res<Time>,
+	laser_query: Query<(Entity, &Transform, &SpriteSize), (With<Laser>, With<FromEnemy>)>,
+	player_query: Query<(Entity, &Transform, &SpriteSize), With<Player>>,
+) {
+	if let Ok((player_entity, player_tf, player_size)) = player_query.get_single() {
+		let player_scale = player_tf.scale.xy();
+
+		for (laser_entity, laser_tf, laser_size) in laser_query.iter() {
+			let laser_scale = laser_tf.scale.xy();
+
+			// determine if collision
+			let collision = Aabb2d::new(
+				laser_tf.translation.truncate(),
+				(laser_size.0 * laser_scale) / 2.,
+			)
+			.intersects(&Aabb2d::new(
+				player_tf.translation.truncate(),
+				(player_size.0 * player_scale) / 2.,
+			));
+
+			// perform the collision
+			if collision {
+				// remove the player
+				commands.entity(player_entity).despawn();
+				player_state.shot(time.elapsed_seconds_f64());
+
+				// remove the laser
+				commands.entity(laser_entity).despawn();
+
+				// spawn the explosionToSpawn
+				commands.spawn(ExplosionToSpawn(player_tf.translation));
+
+				break;
+			}
+		}
+	}
+}
+
+fn explosion_to_spawn_system(
+	mut commands: Commands,
+	game_textures: Res<GameTextures>,
+	query: Query<(Entity, &ExplosionToSpawn)>,
+) {
+	for (explosion_spawn_entity, explosion_to_spawn) in query.iter() {
+		// spawn the explosion sprite
+		commands
+			.spawn((
+				SpriteBundle {
+					texture: game_textures.explosion_texture.clone(),
+					transform: Transform {
+						translation: explosion_to_spawn.0,
+						..Default::default()
+					},
+					..Default::default()
+				},
+				TextureAtlas {
+					layout: game_textures.explosion_layout.clone(),
+					index: 0,
+				},
+			))
+			.insert(Explosion)
+			.insert(ExplosionTimer::default());
+
+		// despawn the explosionToSpawn
+		commands.entity(explosion_spawn_entity).despawn();
+	}
+}
+
+fn explosion_animation_system(
+	mut commands: Commands,
+	time: Res<Time>,
+	mut query: Query<(Entity, &mut ExplosionTimer, &mut TextureAtlas), With<Explosion>>,
+) {
+	for (entity, mut timer, mut sprite) in &mut query {
+		timer.0.tick(time.delta());
+		if timer.0.finished() {
+			sprite.index += 1; // move to next sprite cell
+			if sprite.index >= EXPLOSION_LEN {
+				commands.entity(entity).despawn();
+			}
+		}
+	}
 }
